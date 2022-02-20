@@ -183,7 +183,6 @@ async function liquidatableFromSolanaRpc() {
         data.map((x) => x.numTransactions)
           .reduce((a, b) => a + b, 0) / data.length
       );
-      console.log(`Current Average TPS: ${averageTPS.toLocaleString()}`);
 
       if (averageTPS > 100000) {
         if (checkTriggers) {
@@ -277,7 +276,7 @@ async function liquidatableFromSolanaRpc() {
         );
         await sleep(interval);
       } else {
-        console.log(`Do nothing due to average TPS is low.`);
+        console.log(`Do nothing due to average TPS is low: ${averageTPS}`);
       }
     } catch (err) {
       console.error('Error checking accounts:', err);
