@@ -250,16 +250,17 @@ async function liquidatableFromSolanaRpc() {
 
           // Reload mango account to make sure still liquidatable
           await mangoAccount.reload(connection, mangoGroup.dexProgramId);
-
-          const liquidated = await maybeLiquidateAccount(mangoAccount);
-          if (liquidated) {
-            await balanceAccount(
-              mangoGroup,
-              liqorMangoAccount,
-              cache,
-              spotMarkets,
-              perpMarkets,
-            );
+          if (mangoAccount.publicKey.toBase58() !== 'SrCXDzoGT6z6UntfTTMm17fHneambebgcqKHQMzy6FJ') {
+            const liquidated = await maybeLiquidateAccount(mangoAccount);
+            if (liquidated) {
+              await balanceAccount(
+                mangoGroup,
+                liqorMangoAccount,
+                cache,
+                spotMarkets,
+                perpMarkets,
+              );
+            }
           }
         }
 
