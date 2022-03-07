@@ -65,6 +65,14 @@ const groupIds = config.getGroup(cluster, groupName) ?? (() => { throw new Error
 const TARGETS = process.env.TARGETS?.replace(/\s+/g, ' ').trim().split(' ').map((s) => parseFloat(s))
   ?? [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+// Do not liquidate accounts that have less than this much in value
+const minEquity = parseInt(
+  process.env.MIN_EQUITY || '0',
+);
+if (minEquity > 0) {
+  console.log(`Minimum equity required to liquidate: ${minEquity}`);
+}
+
 const mangoProgramId = groupIds.mangoProgramId;
 const mangoGroupKey = groupIds.publicKey;
 
@@ -293,6 +301,13 @@ async function maybeLiquidateAccount(mangoAccount: MangoAccount): Promise<boolea
     );
     return false;
   }
+
+  const equity = mangoAccount.computeValue(mangoGroup, cache).toNumber()
+  if (equity < minEquity && minEquity > 0) {
+    // console.log(`Account ${mangoAccountKeyString} only has ${equity}, PASS`);
+    return false;
+  }
+
 
   const health = mangoAccount.getHealthRatio(mangoGroup, cache, 'Maint');
   const accountInfoString = mangoAccount.toPrettyString(
