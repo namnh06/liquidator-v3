@@ -192,7 +192,7 @@ async function liquidatableFromSolanaRpc() {
           .reduce((a, b) => a + b, 0) / data.length
       );
 
-      if (averageTPS > 100000) {
+      if (averageTPS > 50000) {
         if (checkTriggers) {
           // load all the advancedOrders accounts
           const mangoAccountsWithAOs = mangoAccounts.filter(
