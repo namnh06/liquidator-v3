@@ -183,16 +183,13 @@ async function liquidatableFromSolanaRpc() {
       const selfConnection = new Connection(
         process.env.ENDPOINT_URL || config.cluster_urls[cluster]
       );
-      const perfSamples = await selfConnection.getRecentPerformanceSamples();
-      const data = perfSamples.sort(function (a, b) {
-        return b.slot - a.slot;
-      }).slice(0, 10);
+      const perfSamples = await selfConnection.getRecentPerformanceSamples(3);
       const averageTPS = Math.ceil(
-        data.map((x) => x.numTransactions)
-          .reduce((a, b) => a + b, 0) / data.length
+        perfSamples.map((x) => x.numTransactions / x.samplePeriodSecs)
+          .reduce((a, b) => a + b, 0) / 3
       );
 
-      if (averageTPS > 100000) {
+      if (averageTPS > 500) {
         if (checkTriggers) {
           // load all the advancedOrders accounts
           const mangoAccountsWithAOs = mangoAccounts.filter(
@@ -1243,21 +1240,25 @@ async function closePositions(
           console.log(
             `${side}ing ${basePositionSize} of ${groupIds?.perpMarkets[i].baseSymbol}-PERP for $${orderPrice}`,
           );
-
-          await client.placePerpOrder(
-            mangoGroup,
-            mangoAccount,
-            cache.publicKey,
-            perpMarket,
-            payer,
-            side,
-            orderPrice,
-            basePositionSize,
-            'ioc',
-            0,
-            bookSideInfo ? bookSideInfo : undefined,
-            true,
-          );
+          const fairValue = mangoGroup.getPrice(index, cache).toNumber();
+          if ((Math.abs(orderPrice - fairValue) / fairValue) < 0.01) {
+            await client.placePerpOrder(
+              mangoGroup,
+              mangoAccount,
+              cache.publicKey,
+              perpMarket,
+              payer,
+              side,
+              orderPrice,
+              basePositionSize,
+              'ioc',
+              0,
+              bookSideInfo ? bookSideInfo : undefined,
+              true,
+            );
+          } else {
+            console.log(`No order due to price is not good`);
+          }
         }
 
         await mangoAccount.reload(connection, mangoGroup.dexProgramId);
