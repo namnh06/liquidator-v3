@@ -195,110 +195,95 @@ async function liquidatableFromSolanaRpc() {
   // eslint-disable-next-line
   while (true) {
     try {
-      // Calculate Average TPS
-      const selfConnection = new Connection(
-        process.env.ENDPOINT_URL || config.cluster_urls[cluster]
-      );
-      const perfSamples = await selfConnection.getRecentPerformanceSamples(3);
-      const averageTPS = Math.ceil(
-        perfSamples.map((x) => x.numTransactions / x.samplePeriodSecs)
-          .reduce((a, b) => a + b, 0) / 3
-      );
-
-      if (averageTPS > 500) {
-        if (checkTriggers) {
-          // load all the advancedOrders accounts
-          const mangoAccountsWithAOs = mangoAccounts.filter(
-            (ma) => ma.advancedOrdersKey && !ma.advancedOrdersKey.equals(zeroKey),
-          );
-          const allAOs = mangoAccountsWithAOs.map((ma) => ma.advancedOrdersKey);
-
-          const advancedOrders = await getMultipleAccounts(connection, allAOs);
-          [cache, liqorMangoAccount] = await Promise.all([
-            mangoGroup.loadCache(connection),
-            liqorMangoAccount.reload(connection, mangoGroup.dexProgramId),
-          ]);
-
-          mangoAccountsWithAOs.forEach((ma, i) => {
-            const decoded = AdvancedOrdersLayout.decode(
-              advancedOrders[i].accountInfo.data,
-            );
-            ma.advancedOrders = decoded.orders;
-          });
-        } else {
-          [cache, liqorMangoAccount] = await Promise.all([
-            mangoGroup.loadCache(connection),
-            liqorMangoAccount.reload(connection, mangoGroup.dexProgramId),
-          ]);
-        }
-
-        for (const mangoAccount of mangoAccounts) {
-          const mangoAccountKeyString = mangoAccount.publicKey.toBase58();
-
-          // Handle trigger orders for this mango account
-          if (checkTriggers && mangoAccount.advancedOrders) {
-            try {
-              await processTriggerOrders(
-                mangoGroup,
-                cache,
-                perpMarkets,
-                mangoAccount,
-              );
-            } catch (err: any) {
-              if (err.message.includes('MangoErrorCode::InvalidParam')) {
-                console.error(
-                  'Failed to execute trigger order, order already executed',
-                );
-              } else if (
-                err.message.includes('MangoErrorCode::TriggerConditionFalse')
-              ) {
-                console.error(
-                  'Failed to execute trigger order, trigger condition was false',
-                );
-              } else {
-                console.error(
-                  `Failed to execute trigger order for ${mangoAccountKeyString}: ${err}`,
-                );
-              }
-            }
-          }
-
-          // If not liquidatable continue to next mango account
-          if (!mangoAccount.isLiquidatable(mangoGroup, cache)) {
-            continue;
-          }
-
-          // Reload mango account to make sure still liquidatable
-          await mangoAccount.reload(connection, mangoGroup.dexProgramId);
-          if (mangoAccount.publicKey.toBase58() !== 'SrCXDzoGT6z6UntfTTMm17fHneambebgcqKHQMzy6FJ') {
-            const liquidated = await maybeLiquidateAccount(mangoAccount);
-            if (liquidated) {
-              await balanceAccount(
-                mangoGroup,
-                liqorMangoAccount,
-                cache,
-                spotMarkets,
-                perpMarkets,
-              );
-            }
-          }
-        }
-
-        cache = await mangoGroup.loadCache(connection);
-        await liqorMangoAccount.reload(connection, mangoGroup.dexProgramId);
-
-        // Check need to rebalance again after checking accounts
-        await balanceAccount(
-          mangoGroup,
-          liqorMangoAccount,
-          cache,
-          spotMarkets,
-          perpMarkets,
+      if (checkTriggers) {
+        // load all the advancedOrders accounts
+        const mangoAccountsWithAOs = mangoAccounts.filter(
+          (ma) => ma.advancedOrdersKey && !ma.advancedOrdersKey.equals(zeroKey),
         );
-        await sleep(interval);
+        const allAOs = mangoAccountsWithAOs.map((ma) => ma.advancedOrdersKey);
+
+        const advancedOrders = await getMultipleAccounts(connection, allAOs);
+        [cache, liqorMangoAccount] = await Promise.all([
+          mangoGroup.loadCache(connection),
+          liqorMangoAccount.reload(connection, mangoGroup.dexProgramId),
+        ]);
+
+        mangoAccountsWithAOs.forEach((ma, i) => {
+          const decoded = AdvancedOrdersLayout.decode(
+            advancedOrders[i].accountInfo.data,
+          );
+          ma.advancedOrders = decoded.orders;
+        });
       } else {
-        console.log(`Do nothing due to average TPS is low: ${averageTPS}`);
+        [cache, liqorMangoAccount] = await Promise.all([
+          mangoGroup.loadCache(connection),
+          liqorMangoAccount.reload(connection, mangoGroup.dexProgramId),
+        ]);
       }
+
+      for (const mangoAccount of mangoAccounts) {
+        const mangoAccountKeyString = mangoAccount.publicKey.toBase58();
+
+        // Handle trigger orders for this mango account
+        if (checkTriggers && mangoAccount.advancedOrders) {
+          try {
+            await processTriggerOrders(
+              mangoGroup,
+              cache,
+              perpMarkets,
+              mangoAccount,
+            );
+          } catch (err: any) {
+            if (err.message.includes('MangoErrorCode::InvalidParam')) {
+              console.error(
+                'Failed to execute trigger order, order already executed',
+              );
+            } else if (
+              err.message.includes('MangoErrorCode::TriggerConditionFalse')
+            ) {
+              console.error(
+                'Failed to execute trigger order, trigger condition was false',
+              );
+            } else {
+              console.error(
+                `Failed to execute trigger order for ${mangoAccountKeyString}: ${err}`,
+              );
+            }
+          }
+        }
+
+        // If not liquidatable continue to next mango account
+        if (!mangoAccount.isLiquidatable(mangoGroup, cache)) {
+          continue;
+        }
+
+        // Reload mango account to make sure still liquidatable
+        await mangoAccount.reload(connection, mangoGroup.dexProgramId);
+        const liquidated = await maybeLiquidateAccount(mangoAccount);
+        if (liquidated) {
+          await balanceAccount(
+            mangoGroup,
+            liqorMangoAccount,
+            cache,
+            spotMarkets,
+            perpMarkets,
+          );
+        }
+      }
+
+      cache = await mangoGroup.loadCache(connection);
+      await liqorMangoAccount.reload(connection, mangoGroup.dexProgramId);
+
+      // Check need to rebalance again after checking accounts
+      await balanceAccount(
+        mangoGroup,
+        liqorMangoAccount,
+        cache,
+        spotMarkets,
+        perpMarkets,
+      );
+      await sleep(interval);
+
     } catch (err) {
       console.error('Error checking accounts:', err);
     }
@@ -1280,25 +1265,25 @@ async function closePositions(
           console.log(
             `${side}ing ${basePositionSize} of ${groupIds?.perpMarkets[i].baseSymbol}-PERP for $${orderPrice}`,
           );
-          const fairValue = mangoGroup.getPrice(index, cache).toNumber();
-          if ((Math.abs(orderPrice - fairValue) / fairValue) < 0.01) {
-            await client.placePerpOrder(
-              mangoGroup,
-              mangoAccount,
-              cache.publicKey,
-              perpMarket,
-              payer,
-              side,
-              orderPrice,
-              basePositionSize,
-              'ioc',
-              0,
-              bookSideInfo ? bookSideInfo : undefined,
-              true,
-            );
-          } else {
-            console.log(`No order due to price is not good`);
-          }
+          // const fairValue = mangoGroup.getPrice(index, cache).toNumber();
+          // if ((Math.abs(orderPrice - fairValue) / fairValue) < 0.01) {
+          await client.placePerpOrder(
+            mangoGroup,
+            mangoAccount,
+            cache.publicKey,
+            perpMarket,
+            payer,
+            side,
+            orderPrice,
+            basePositionSize,
+            'ioc',
+            0,
+            bookSideInfo ? bookSideInfo : undefined,
+            true,
+          );
+          // } else {
+          //   console.log(`No order due to price is not good`);
+          // }
         }
 
         await mangoAccount.reload(connection, mangoGroup.dexProgramId);
